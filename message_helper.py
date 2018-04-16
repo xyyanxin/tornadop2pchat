@@ -4,12 +4,16 @@ Program: tornadop2pserver
 Description: 
 Author: XY - mailyanxin@gmail.com
 Date: 2018-04-16 02:36:45
-Last modified: 2018-04-16 03:07:22
+Last modified: 2018-04-16 08:12:30
 Python release: 3.5.2
 """
 
+import time
 import logging
 from tornado.concurrent import Future
+from mysql_helper import MessageModel
+from mysql_helper import UserModel
+from mysql_helper import DBsession
 
 class MessageBuffer(object):
     def __init__(self):
@@ -19,23 +23,29 @@ class MessageBuffer(object):
         {'from_user_id': a,'target_user_id': b, 'data': message}
         '''
         self.waiters = []
-        self.caches = []
 
     def new_messages(self,from_user_id,data,target_user_id):
         # 1.存消息
         foo_dict = {
                 'from_user_id': from_user_id,
                 'target_user_id': target_user_id,
-                'data': data,
+                'message_type': data['message_type'],
+                'message_text': data['message_text'],
+                'dt_create': time.time(),
                 }
-        self.caches.append(foo_dict)
+        ret = MessageModel.create(**foo_dict)
         logging.info('消息存储成功')
 
         # 2.信息发给相关的future
         waiters = [i for i in self.waiters
                 if i['wait_target_user_id'] == from_user_id and i['wait_from_user_id'] == target_user_id]
         if len(waiters) == 1:
-            waiters[0]['future'].set_result(data)
+            result_dict = {
+                    'message_type': ret.message_type,
+                    'message_text': ret.message_text,
+                    'cursor': ret.id,
+                    }
+            waiters[0]['future'].set_result(result_dict)
             logging.info('sending to online listeners %r', self.waiters)
         elif len(waiters) == 0:
             logging.info('but nobody online listen')
@@ -49,6 +59,7 @@ class MessageBuffer(object):
                 wait_target_user_id = from_user_id,
                 )
 
+        return ret
 
     def wait_for_message(self,wait_from_user_id,wait_target_user_id,cursor):
 
@@ -56,10 +67,16 @@ class MessageBuffer(object):
 
         result_future = Future()
         if cursor:
-            new_data = ''
-            # 从mysql中找消息
-            if new_data:
-                result_future.set_result(new_data)
+            session = DBsession()
+            new_data = session.query(MessageModel.message_type,MessageModel.message_text,MessageModel.message_url,MessageModel.id)\
+                    .filter(MessageModel.from_user_id==wait_target_user_id)\
+                    .filter(MessageModel.target_user_id==wait_from_user_id)\
+                    .filter(MessageModel.id > cursor)\
+                    .order_by(MessageModel.id.desc())\
+                    .all()
+            ret_data = [{'message_type': i.message_type, 'message_text': i.message_text,'cursor': i.id} for i in new_data]
+            if ret_data:
+                result_future.set_result(ret_data)
                 return result_future
 
         foo_dict = {

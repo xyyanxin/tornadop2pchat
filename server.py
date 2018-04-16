@@ -4,7 +4,7 @@ Program: chat
 Description: 
 Author: XY - mailyanxin@gmail.com
 Date: 2018-04-14 03:39:27
-Last modified: 2018-04-16 03:07:25
+Last modified: 2018-04-16 08:02:44
 Python release: 3.5.2
 """
 
@@ -48,7 +48,7 @@ class MessageNewHandler(tornado.web.RequestHandler):
         data = self.request.body.decode('utf-8')
         params = json.loads(data)
 
-        global_message_buffer.new_messages(
+        ret_data = global_message_buffer.new_messages(
                 from_user_id = params['from_user_id'],
                 target_user_id = params['target_user_id'],
                 data = params['data'],
@@ -57,6 +57,7 @@ class MessageNewHandler(tornado.web.RequestHandler):
         ret = {
                 'errcode': 0,
                 'errmsg': 'ok',
+                'data': {'id':ret_data.id},
                 }
         self.write(ret)
 
@@ -74,7 +75,12 @@ class MessageUpdateHandler(tornado.web.RequestHandler):
         message = yield self.future
         if self.request.connection.stream.closed():
             self.write('closed')
-        self.write(message)
+        ret = {
+                'errcode': 0,
+                'errmsg': 'ok',
+                'data': message
+                }
+        self.write(ret)
 
 
 def create_app():
